@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Python caches
+__pycache__/
+.pytest_cache/
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+
+# IDE / editor
+.vscode/
+.idea/
+
+# Generated / temporary diff files
+diff_output.txt
+diff_python.txt
+diff_utf8.txt
+
+# Generated BMAD output
+_bmad-output/

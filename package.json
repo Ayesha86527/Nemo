@@ -1,0 +1,12 @@
+{
+  "name": "nemo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Nemo — AI Career Co-Pilot for CS/SWE Students",
+  "scripts": {
+    "backend:dev": "cd backend && python -m app.main",
+    "frontend:dev": "cd frontend && npm run dev",
+    "frontend:install": "cd frontend && npm install",
+    "dev": "npm run backend:dev & npm run frontend:dev"
+  }
+}
