@@ -134,26 +134,6 @@ class TestValidation:
         with pytest.raises(ProviderConfigError):
             CustomProvider(model="m", base_url="http://local.host/v1").validate()
 
-    async def test_list_models_works_without_model_name(self):
-        def handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(200, json={"data": [{"id": "m1"}, {"id": "whisper-1"}]})
-
-        provider = CustomProvider(
-            api_key="k", base_url="http://local.host/v1", http_client=_mock_client(handler)
-        )
-        models = await provider.list_models()
-        assert [m.id for m in models] == ["m1"]  # non-chat models filtered out
-
-    async def test_list_models_handles_null_data(self):
-        # Ollama's /v1/models returns {"data": null} when nothing is pulled.
-        def handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(200, json={"object": "list", "data": None})
-
-        provider = CustomProvider(
-            api_key="k", base_url="http://local.host/v1", http_client=_mock_client(handler)
-        )
-        assert await provider.list_models() == []
-
 
 class TestRouter:
     def test_build_provider_from_settings(self):

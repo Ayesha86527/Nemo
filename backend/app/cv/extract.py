@@ -1,4 +1,4 @@
-"""Plain-text extraction of the stored CV .docx.
+"""Plain-text extraction of the stored CV (.docx, .pdf, or .txt).
 
 Every LLM feature (market intel, role-match, cover letters, roadmaps) must be
 grounded in the user's ACTUAL resume. The uploaded document's text is
@@ -18,6 +18,8 @@ KEY_FILENAME = "cv_text_key.txt"
 
 # Keep prompts bounded even for very long documents.
 MAX_CHARS = 12000
+
+SUPPORTED_EXTENSIONS = (".docx", ".pdf", ".txt")
 
 
 def extract_docx_text(data: bytes) -> str:
@@ -39,6 +41,31 @@ def extract_docx_text(data: bytes) -> str:
     return "\n".join(lines)
 
 
+def extract_pdf_text(data: bytes) -> str:
+    """Text of every page, via pypdf."""
+    from pypdf import PdfReader
+
+    reader = PdfReader(io.BytesIO(data))
+    lines: list[str] = []
+    for page in reader.pages:
+        text = (page.extract_text() or "").strip()
+        if text:
+            lines.append(text)
+    return "\n".join(lines)
+
+
+def extract_cv_text(data: bytes, filename: str) -> str:
+    """Dispatch extraction by file extension; unknown types raise ValueError."""
+    name = (filename or "").lower()
+    if name.endswith(".docx"):
+        return extract_docx_text(data)
+    if name.endswith(".pdf"):
+        return extract_pdf_text(data)
+    if name.endswith(".txt"):
+        return data.decode("utf-8", errors="replace")
+    raise ValueError(f"Unsupported CV format: {name or '(no filename)'}")
+
+
 class CVTextCache:
     def __init__(self, directory: Path = DEFAULT_CV_DIR, store: CVFileStore | None = None):
         self._dir = Path(directory)
@@ -58,15 +85,18 @@ class CVTextCache:
         key = self._cache_key()
         if self._key_file.exists():
             try:
-                if self._key_file.read_text() == key:
-                    return self._text_file.read_text()
+                if self._key_file.read_text(encoding="utf-8") == key:
+                    # errors="replace": cache files written by older builds may
+                    # carry Windows-locale bytes (e.g. cp1252 0x96) — degrade to
+                    # a re-extraction instead of crashing every LLM call.
+                    return self._text_file.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 pass
-        text = extract_docx_text(data)[:MAX_CHARS]
+        text = extract_cv_text(data, self._store.meta().get("filename") or "")[:MAX_CHARS]
         try:
             self._dir.mkdir(parents=True, exist_ok=True)
-            self._text_file.write_text(text)
-            self._key_file.write_text(key)
+            self._text_file.write_text(text, encoding="utf-8")
+            self._key_file.write_text(key, encoding="utf-8")
         except OSError:
             pass  # cache write failure is harmless — extraction still returns
         return text

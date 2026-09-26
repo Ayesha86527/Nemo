@@ -42,11 +42,13 @@ class TestCoverLetterService:
             research="Acme values scale.",
             match_summary="Strong match.",
         )
-        prompt = seen[0]
-        assert "Acme" in prompt
-        assert "Acme values scale." in prompt
-        assert "Strong match." in prompt
-        assert "Skills: Python" in prompt
+        # Two-step pipeline: analysis (JD + CV + match) then drafting (mapping
+        # + research + name) — preparation context must reach the step that
+        # can actually use it.
+        step1, step2 = seen
+        assert "Acme" in step1 and "Python" in step1 and "Strong match." in step1
+        assert "Skills: Python" in step1
+        assert "Acme values scale." in step2 and "Ayesha" in step2
 
     async def test_llm_error_raises_with_hint(self):
         service = _service(error="rate limited")

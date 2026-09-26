@@ -13,6 +13,8 @@ class ProfileOut(BaseModel):
     email: str
     target_roles: str
     education: str
+    short_term_goal: str
+    long_term_goal: str
 
 
 class ProfileUpdate(BaseModel):
@@ -20,6 +22,8 @@ class ProfileUpdate(BaseModel):
     email: str | None = None
     target_roles: str | None = None
     education: str | None = None
+    short_term_goal: str | None = None
+    long_term_goal: str | None = None
 
 
 def _get_or_create(session: Session) -> UserProfile:
@@ -33,7 +37,14 @@ def _get_or_create(session: Session) -> UserProfile:
 
 
 def _to_out(p: UserProfile) -> ProfileOut:
-    return ProfileOut(name=p.name, email=p.email, target_roles=p.target_roles, education=p.education)
+    return ProfileOut(
+        name=p.name,
+        email=p.email,
+        target_roles=p.target_roles,
+        education=p.education,
+        short_term_goal=p.short_term_goal,
+        long_term_goal=p.long_term_goal,
+    )
 
 
 @router.get("", response_model=ProfileOut)

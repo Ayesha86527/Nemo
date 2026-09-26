@@ -30,16 +30,19 @@ class PrepResult:
     role: str = ""
 
 
-_MATCH_SYSTEM = """You are a technical recruiter. Score how well the candidate's CV matches the job description.
-Base the score STRICTLY on evidence present in the candidate's CV — never assume skills or experience the CV does not show.
+_MATCH_SYSTEM = """You are a recruiter. Score how well the candidate's CV matches the job description.
+Base the score STRICTLY on evidence present in the candidate's CV and the stated job description — never assume an industry, skills, preferences, or experience the documents do not show.
 Also identify the hiring company and the job title if they are identifiable in the job description.
 Respond with STRICT JSON only, no markdown:
-{"match_score": <integer 0-100>, "summary": "<2-3 sentences: strongest matches and biggest gaps, citing specific CV evidence>", "company": "<company name or empty string>", "role": "<job title or empty string>"}"""
+{"match_score": <integer 0-100>, "summary": "<at most 2 sentences: the single strongest match and the single biggest gap, with concrete evidence — no restating of the score, no filler>", "company": "<company name or empty string>", "role": "<job title or empty string>"}
+The summary is plain text: no markdown (no **, no #, no bullet symbols)."""
 
-_RESEARCH_SYSTEM = """You are a company and role researcher. Produce a concise deep-research brief for a job applicant.
-Cover: what the company likely does and values, what the role really entails based on the job description,
-the skills emphasized, signals about team and culture, and 3-5 concrete talking points for the application.
-Plain text with short sections, max 300 words. Do not fabricate specific facts you cannot infer; frame inferences as such."""
+_RESEARCH_SYSTEM = """You are a company and role researcher. Produce a terse brief for a job applicant.
+Use exactly these short section headers, each followed by 1-3 sentences:
+COMPANY & ROLE — what the company does and what this role owns, strictly as evidenced by the job description. No candidate commentary here.
+GAPS & ANGLES — at most 3 bullets pairing one candidate strength and one real gap with the JD. Do NOT restate the match score or fit summary; the caller already has them.
+NEXT ACTIONS — 3 short, concrete steps for this application.
+Do not assume industry conventions or company facts; frame inferences as such. Plain text only — no markdown formatting (no **, no #, no ---, use the section headers and - bullets as shown). Max 150 words total. Every sentence must earn its place."""
 
 
 def _parse_match(text: str) -> tuple[int | None, str, str, str]:

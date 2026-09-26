@@ -7,8 +7,9 @@ provider accepts an injectable `http_client` for testing.
 """
 
 import asyncio
+import json
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import httpx
 
@@ -32,21 +33,6 @@ class LLMResponse:
     hint: str | None = None
 
 
-@dataclass
-class ModelInfo:
-    id: str
-    name: str = ""
-
-
-# Catalog entries that are not chat/generation models (audio, guards, embeddings)
-_NON_CHAT_MARKERS = ("whisper", "tts", "prompt-guard", "embedding", "guard", "safeguard")
-
-
-def _is_chat_model(model_id: str) -> bool:
-    lowered = model_id.lower()
-    return not any(marker in lowered for marker in _NON_CHAT_MARKERS)
-
-
 class LLMProvider(ABC):
     name: str = "base"
     model: str = ""
@@ -57,10 +43,6 @@ class LLMProvider(ABC):
     @abstractmethod
     async def generate(self, prompt: str, system: str | None = None) -> LLMResponse:
         """Run inference. Raises LLMError subclasses on failure."""
-
-    @abstractmethod
-    async def list_models(self) -> list[ModelInfo]:
-        """Fetch the provider's currently available models."""
 
 
 def _classify_http_error(exc: Exception, provider_name: str) -> LLMError:
@@ -156,7 +138,7 @@ class CustomProvider(LLMProvider):
         if not self.model:
             raise ProviderConfigError(
                 "The LLM endpoint needs a model name.",
-                hint="Pick a model in Settings (refresh the model list, or type one in).",
+                hint="Enter the model name in Settings.",
             )
         self._validate_connection()
 
@@ -206,19 +188,50 @@ class CustomProvider(LLMProvider):
         text = data["choices"][0]["message"]["content"]
         return LLMResponse(text=text, provider=self.name, model=self.model)
 
-    async def list_models(self) -> list[ModelInfo]:
-        # The model catalog only needs the endpoint + key, not a model name.
-        self._validate_connection()
-        resp = await self._request(
-            "GET",
-            f"{self.base_url}/models",
-            headers={"Authorization": f"Bearer {self.api_key}"},
-            timeout=30,
-        )
-        _raise_for_status(resp, "The LLM endpoint")
-        entries = resp.json().get("data") or []
-        return [
-            ModelInfo(id=m["id"], name=m.get("name") or m["id"])
-            for m in entries
-            if m.get("id") and _is_chat_model(m["id"])
-        ]
+    async def stream(self, prompt: str, system: str | None = None):
+        """Stream inference tokens as they arrive. Yields text chunks.
+
+        Uses the OpenAI SSE streaming protocol (`stream: true`). Raises
+        LLMError subclasses on connection or auth failures; individual bad
+        SSE lines are skipped silently so one corrupt chunk never kills the
+        whole stream.
+        """
+        self.validate()
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        client = self._client if self._client is not None else get_shared_client()
+        try:
+            async with client.stream(
+                "POST",
+                f"{self.base_url}/chat/completions",
+                json={"model": self.model, "messages": messages, "stream": True},
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                timeout=self.timeout,
+            ) as resp:
+                _raise_for_status(resp, "The LLM endpoint")
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    payload = line[6:].strip()
+                    if payload == "[DONE]":
+                        return
+                    try:
+                        data = json.loads(payload)
+                        chunk = data["choices"][0]["delta"].get("content") or ""
+                        if chunk:
+                            yield chunk
+                    except (json.JSONDecodeError, KeyError, IndexError):
+                        continue
+        except httpx.TimeoutException as exc:
+            raise InferenceTimeoutError(
+                "The LLM endpoint timed out during streaming.",
+                hint="Try a smaller model in Settings, or check that the endpoint is healthy.",
+            ) from exc
+        except httpx.ConnectError as exc:
+            raise ProviderUnavailableError(
+                "Could not connect to the LLM endpoint.",
+                hint="Check the base URL in Settings and that the service is running.",
+            ) from exc
+

@@ -1,6 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getProfile, getSettings, listModels, updateProfile, updateSettings } from "../api/client";
+import {
+  ApiRequestError,
+  getProfile,
+  getSettings,
+  resetAllData,
+  updateProfile,
+  updateSettings,
+} from "../api/client";
 
 export default function SettingsView() {
   const queryClient = useQueryClient();
@@ -8,21 +15,22 @@ export default function SettingsView() {
   const profileQ = useQuery({ queryKey: ["profile"], queryFn: getProfile });
 
   const [baseUrl, setBaseUrl] = useState("");
-  const [debouncedUrl, setDebouncedUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [targetRoles, setTargetRoles] = useState("");
   const [education, setEducation] = useState("");
+  const [shortTermGoal, setShortTermGoal] = useState("");
+  const [longTermGoal, setLongTermGoal] = useState("");
   const [saved, setSaved] = useState(false);
+  const [resetDone, setResetDone] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (settingsQ.data) {
       setBaseUrl(settingsQ.data.custom_base_url);
-      setDebouncedUrl(settingsQ.data.custom_base_url);
       setModel(settingsQ.data.cloud_model);
     }
   }, [settingsQ.data]);
@@ -33,23 +41,12 @@ export default function SettingsView() {
       setEmail(profileQ.data.email);
       setTargetRoles(profileQ.data.target_roles);
       setEducation(profileQ.data.education);
+      setShortTermGoal(profileQ.data.short_term_goal || "");
+      setLongTermGoal(profileQ.data.long_term_goal || "");
     }
   }, [profileQ.data]);
 
-  // Refetch the catalog shortly after the user stops editing the endpoint.
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedUrl(baseUrl), 400);
-    return () => clearTimeout(timer);
-  }, [baseUrl]);
-
-  const modelsQ = useQuery({
-    queryKey: ["models", debouncedUrl, apiKey ? "draft-key" : "saved-key"],
-    queryFn: () => listModels(debouncedUrl || undefined, apiKey || undefined),
-    retry: false,
-  });
-
   const keySet = settingsQ.data?.custom_api_key_set ?? false;
-  const catalog = modelsQ.data;
 
   const save = async () => {
     setBusy(true);
@@ -66,13 +63,32 @@ export default function SettingsView() {
         email,
         target_roles: targetRoles,
         education,
+        short_term_goal: shortTermGoal,
+        long_term_goal: longTermGoal,
       });
       setApiKey("");
       setSaved(true);
       queryClient.invalidateQueries({ queryKey: ["settings"] });
-      queryClient.invalidateQueries({ queryKey: ["models"] });
     } catch (err) {
       setError(String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const reset = async () => {
+    if (!window.confirm("Reset ALL data (profile, CV, jobs, roadmaps, chat history)? Your LLM settings are kept.")) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await resetAllData(false);
+      queryClient.invalidateQueries();
+      setSaved(false);
+      setResetDone(true);
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -107,30 +123,11 @@ export default function SettingsView() {
 
         <label>Model</label>
         <input
-          list="model-catalog"
           value={model}
           onChange={(e) => setModel(e.target.value)}
-          placeholder="Pick from the list or type a model name"
+          placeholder="Enter the exact model name used by your endpoint"
         />
-        <datalist id="model-catalog">
-          {catalog?.models.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name || m.id}
-            </option>
-          ))}
-        </datalist>
-        <div className="row">
-          <button type="button" onClick={() => modelsQ.refetch()} disabled={modelsQ.isLoading}>
-            {modelsQ.isLoading ? "Loading models…" : "Refresh model list"}
-          </button>
-        </div>
-        {modelsQ.isLoading && <p className="msg-info">Fetching live model list…</p>}
-        {catalog?.error && (
-          <p className="msg-error">
-            Could not list models: {catalog.error}
-            {catalog.hint ? ` — ${catalog.hint}` : ""}
-          </p>
-        )}
+        <p className="msg-info">Use the model identifier documented by your endpoint. Nemo saves and uses this value as entered.</p>
       </div>
 
       <div className="card">
@@ -153,13 +150,28 @@ export default function SettingsView() {
             <input value={education} onChange={(e) => setEducation(e.target.value)} placeholder="BSc Computer Science, …" />
           </div>
         </div>
+        <label>Short-term goal</label>
+        <input value={shortTermGoal} onChange={(e) => setShortTermGoal(e.target.value)} placeholder="Land a backend role in 3 months" />
+        <label>Long-term goal</label>
+        <input value={longTermGoal} onChange={(e) => setLongTermGoal(e.target.value)} placeholder="Grow into a staff engineer role" />
+        <p className="msg-info">The Nemo Agent remembers these and keeps them updated from your conversations.</p>
       </div>
 
       <button className="primary" onClick={save} disabled={busy || settingsQ.isLoading || profileQ.isLoading}>
         {busy ? "Saving…" : "Save settings"}
       </button>
       {saved && <div className="msg-success">Saved.</div>}
+      {resetDone && <div className="msg-success">All data reset — Nemo starts from a clean slate.</div>}
       {error && <div className="msg-error">{error}</div>}
+
+      <div className="card danger-zone">
+        <h2>Reset</h2>
+        <p className="msg-info">
+          Wipes your profile, CV, jobs, cover letters, roadmaps, and chat history — a full
+          clean slate. Your LLM endpoint settings are kept.
+        </p>
+        <button className="ghost" onClick={reset} disabled={busy}>Reset all data…</button>
+      </div>
     </>
   );
 }

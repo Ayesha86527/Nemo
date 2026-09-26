@@ -1,4 +1,4 @@
-# Dependencies
+﻿# Dependencies
 node_modules/
 
 # Build output
@@ -28,5 +28,20 @@ diff_output.txt
 diff_python.txt
 diff_utf8.txt
 
-# Generated BMAD output
+# Generated BMAD output + local agent tooling (not part of the app)
 _bmad-output/
+_bmad/
+.agents/
+.claude/
+.github/agents/
+
+# Packaging output
+frontend/release/
+frontend/resources/
+frontend/build/
+
+# SQLite databases
+*.db
+
+# Python egg-info
+*.egg-info/

@@ -6,9 +6,6 @@ routers/jobs.py); this module exposes `resolve_cv_document` — the fallback
 chain the pipeline uses: stored file → document rendered from content.
 """
 
-import io
-
-from docx import Document
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import Response
 from sqlmodel import Session
@@ -18,7 +15,12 @@ from app.cv.content import (
     load_content,
     save_content,
 )
-from app.cv.extract import extract_docx_text, get_cv_text_cache
+from app.cv.extract import (
+    SUPPORTED_EXTENSIONS,
+    extract_cv_text,
+    extract_docx_text,
+    get_cv_text_cache,
+)
 from app.cv.ingest import ingest_cv_text
 from app.cv.renderer import render_cv_docx
 from app.cv.storage import get_cv_store
@@ -30,6 +32,17 @@ router = APIRouter(prefix="/api/cv", tags=["cv"])
 
 MAX_UPLOAD_MB = 10
 DOCX_MEDIA = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+PDF_MEDIA = "application/pdf"
+TXT_MEDIA = "text/plain"
+
+
+def _media_type(filename: str) -> str:
+    name = (filename or "").lower()
+    if name.endswith(".pdf"):
+        return PDF_MEDIA
+    if name.endswith(".txt"):
+        return TXT_MEDIA
+    return DOCX_MEDIA
 
 
 def _status() -> dict:
@@ -53,16 +66,19 @@ async def status():
 
 @router.post("/file")
 async def upload_file(file: UploadFile = File(...)):
-    if not (file.filename or "").lower().endswith(".docx"):
-        raise HTTPException(422, "Upload a .docx file (PDF is not supported).")
+    filename = file.filename or ""
+    if not filename.lower().endswith(SUPPORTED_EXTENSIONS):
+        raise HTTPException(422, "Upload a .docx, .pdf, or .txt CV.")
     data = await file.read()
     if len(data) > MAX_UPLOAD_MB * 1024 * 1024:
         raise HTTPException(413, f"File exceeds {MAX_UPLOAD_MB} MB limit.")
     try:
-        Document(io.BytesIO(data))
+        text = extract_cv_text(data, filename)
     except Exception:
-        raise HTTPException(422, "Could not read the .docx file — it may be corrupt.")
-    get_cv_store().save(data, file.filename or "cv.docx")
+        raise HTTPException(422, "Could not read the file — it may be corrupt or password-protected.")
+    if not text.strip():
+        raise HTTPException(422, "No extractable text found — a scanned PDF needs a text-based version.")
+    get_cv_store().save(data, filename or "cv.docx")
     get_cv_text_cache().invalidate()
 
     ingested = False
@@ -72,7 +88,7 @@ async def upload_file(file: UploadFile = File(...)):
         content_empty = is_empty(content)
     if content_empty:
         try:
-            parsed = await ingest_cv_text(generate, extract_docx_text(data))
+            parsed = await ingest_cv_text(generate, text)
         except Exception as exc:
             parsed = None
             ingest_error = str(exc)
@@ -93,7 +109,7 @@ async def download_file():
     filename = store.meta().get("filename") or "cv.docx"
     return Response(
         content=data,
-        media_type=DOCX_MEDIA,
+        media_type=_media_type(filename),
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
@@ -123,7 +139,8 @@ def render_current_cv() -> bytes:
 
 
 @router.post("/render")
-async def render():
+async def render(format: str = "docx"):
+    """Render the CV from structured content — downloadable as Word or PDF."""
     try:
         data = render_current_cv()
     except ValueError:
@@ -133,6 +150,15 @@ async def render():
                 "error": "Nothing to render yet.",
                 "hint": "Ask the Nemo Agent to add skills, experience or achievements to your CV first.",
             },
+        )
+    fmt = (format or "docx").lower()
+    if fmt == "pdf":
+        from app.cv.pdf_renderer import render_cv_pdf
+
+        return Response(
+            content=render_cv_pdf(data),
+            media_type=PDF_MEDIA,
+            headers={"Content-Disposition": 'attachment; filename="cv_rendered.pdf"'},
         )
     return Response(
         content=data,

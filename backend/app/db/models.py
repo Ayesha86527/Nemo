@@ -9,6 +9,15 @@ class UserProfile(SQLModel, table=True):
     email: str = ""
     target_roles: str = ""  # comma-separated list of target role titles
     education: str = ""
+    # Onboarding context the agent collects and keeps updated (persistent memory).
+    short_term_goal: str = ""
+    long_term_goal: str = ""
+
+
+class AppState(SQLModel, table=True):
+    """Internal key/value state (schema version marker for clean-slate resets)."""
+    key: str = Field(default=None, primary_key=True)
+    value: str = ""
 
 
 class Settings(SQLModel, table=True):
@@ -54,6 +63,8 @@ class JobApplication(SQLModel, table=True):
     research: str = ""
     prepared_at: str = ""
     created_at: str = ""
+    # Auto-flow extras (generated when a pasted JD is analyzed)
+    linkedin_dm: str = ""
 
 
 class CoverLetter(SQLModel, table=True):

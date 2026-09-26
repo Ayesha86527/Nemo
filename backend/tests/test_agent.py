@@ -136,7 +136,7 @@ class TestCvActions:
 
 
 class TestSettingsActions:
-    async def test_valid_settings_applied(self, isolated_engine):
+    async def test_settings_update_refused_out_of_scope(self, isolated_engine):
         turn = await _agent(
             {
                 "reply": "ok",
@@ -144,22 +144,27 @@ class TestSettingsActions:
                     {
                         "type": "settings_update",
                         "custom_base_url": "https://api.groq.com/openai/v1",
+                        "custom_api_key": "sk-x",
                         "cloud_model": "llama-3.3-70b",
                     }
                 ],
             }
         ).chat("switch to groq")
-        assert "LLM endpoint set to https://api.groq.com/openai/v1" in turn.changes[0]
+        assert "can't change app settings" in turn.changes[0]
+        # Nothing may be persisted — settings are outside the agent's scope.
         with Session(isolated_engine) as session:
             settings = session.exec(select(Settings)).first()
-        assert settings.custom_base_url == "https://api.groq.com/openai/v1"
-        assert settings.cloud_model == "llama-3.3-70b"
+        assert settings is None or (
+            settings.custom_base_url == ""
+            and settings.custom_api_key == ""
+            and settings.cloud_model == ""
+        )
 
-    async def test_unknown_fields_ignored_not_crashed(self, isolated_engine):
+    async def test_settings_update_never_crashes_on_unknown_fields(self, isolated_engine):
         turn = await _agent(
             {"reply": "ok", "actions": [{"type": "settings_update", "cloud_provider": "skynet"}]}
         ).chat("bad settings")
-        assert turn.changes == []
+        assert "can't change app settings" in turn.changes[0]
 
 
 class TestProfileActions:
@@ -254,14 +259,22 @@ class TestChatLifecycle:
 
 
 class TestJobActions:
-    def _patch_job_fns(self, monkeypatch, seen):
+    def _patch_job_fns(self, monkeypatch, seen, match_score=77):
         import app.agent.service as agent_service
 
-        class FakeJob:
-            id = 7
-            company = "Nova Labs"
-            role = "ML Engineer"
-            match_score = 77
+        FakeJob = type(
+            "FakeJob",
+            (),
+            {
+                "id": 7,
+                "company": "Nova Labs",
+                "role": "ML Engineer",
+                "match_score": match_score,
+                "match_summary": "Strong overall match.",
+                "research": "Nova Labs values scale.",
+                "job_description": "Need Python.",
+            },
+        )
 
         async def fake_quick_prepare(generate_fn, jd, company="", role=""):
             seen["jd"] = jd
@@ -276,30 +289,78 @@ class TestJobActions:
             seen["letter_job"] = job_id
             return None, Path("downloads/CoverLetter_Nova Labs.txt")
 
+        async def fake_dm(generate_fn, **kwargs):
+            seen["dm"] = kwargs
+            return "Hi — I build scalable pipelines and noticed your posting."
+
+        def fake_save(job_id, dm):
+            seen["dm_saved"] = (job_id, dm)
+            return None
+
         monkeypatch.setattr(agent_service, "quick_prepare", fake_quick_prepare)
         monkeypatch.setattr(agent_service, "tailor_to_file", fake_tailor)
         monkeypatch.setattr(agent_service, "cover_letter_to_file", fake_letter)
+        monkeypatch.setattr(agent_service, "linkedin_dm_text", fake_dm)
+        monkeypatch.setattr(agent_service, "save_linkedin_dm", fake_save)
 
-    async def test_job_action_both_tracks_and_exports(self, isolated_engine, monkeypatch):
+    async def test_job_action_full_tracks_exports_and_skips_tailor_when_aligned(
+        self, isolated_engine, monkeypatch
+    ):
+        seen: dict = {}
+        self._patch_job_fns(monkeypatch, seen, match_score=77)
+        turn = await _agent(
+            {
+                "reply": "ok",
+                "actions": [
+                    {"type": "job_action", "mode": "full", "job_description": "Need Python.", "company": "Nova Labs"}
+                ],
+            }
+        ).chat("full workup for this JD")
+        note = turn.changes[0]
+        assert seen["jd"] == "Need Python."
+        assert seen["company"] == "Nova Labs"
+        assert seen["letter_job"] == 7
+        assert "dm" in seen
+        assert "Tracked job #7" in note
+        assert "77%" in note
+        assert "kept the original" in note  # 77% >= 70: aligned, no tailored CV
+        assert "Tailored CV saved" not in note
+        assert "Cover letter saved" in note
+
+    async def test_job_action_tailors_when_misaligned(self, isolated_engine, monkeypatch):
+        seen: dict = {}
+        self._patch_job_fns(monkeypatch, seen, match_score=55)
+        turn = await _agent(
+            {
+                "reply": "ok",
+                "actions": [
+                    {"type": "job_action", "mode": "tailor", "job_description": "Need Python.", "company": "Nova Labs"}
+                ],
+            }
+        ).chat("tailor my CV")
+        note = turn.changes[0]
+        assert seen["tailor_job"] == 7
+        assert "misaligned (55% < 70%)" in note
+        assert "Tailored CV saved" in note
+
+    async def test_job_action_analyze_gives_verdict_without_exports(
+        self, isolated_engine, monkeypatch
+    ):
         seen: dict = {}
         self._patch_job_fns(monkeypatch, seen)
         turn = await _agent(
             {
                 "reply": "ok",
                 "actions": [
-                    {"type": "job_action", "mode": "both", "job_description": "Need Python.", "company": "Nova Labs"}
+                    {"type": "job_action", "mode": "analyze", "job_description": "Need Python.", "company": "Nova Labs"}
                 ],
             }
-        ).chat("tailor my CV for this JD")
+        ).chat("analyze this JD")
         note = turn.changes[0]
-        assert seen["jd"] == "Need Python."
-        assert seen["company"] == "Nova Labs"
-        assert seen["tailor_job"] == 7
-        assert seen["letter_job"] == 7
-        assert "Tracked job #7" in note
-        assert "77%" in note
-        assert "Tailored CV saved" in note
-        assert "Cover letter saved" in note
+        assert "Fit verdict" in note
+        assert "Tailored CV saved" not in note
+        assert "Cover letter saved" not in note
+        assert "tailor_job" not in seen
 
     async def test_job_action_cover_letter_only(self, isolated_engine, monkeypatch):
         seen: dict = {}

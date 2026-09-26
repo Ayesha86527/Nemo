@@ -227,3 +227,76 @@ async def cover_letter_to_file(
     path = Path(export_dir) / f"CoverLetter_{_safe_name(job.company)}.txt"
     path.write_text(letter.content, encoding="utf-8")
     return letter, path
+
+
+# CVs scoring at or above this are considered aligned — no tailored version is
+# generated unless the user explicitly asks for one.
+ALIGNMENT_THRESHOLD = 70
+
+
+def _clip_jd(text: str, limit: int = 1800) -> str:
+    return text[:limit] + ("\n[...truncated...]" if len(text) > limit else "")
+
+
+_DM_SYSTEM = """You write short LinkedIn outreach messages to a hiring team about a specific job.
+Respond with ONLY the message text (no preamble, no quotes, no subject line).
+Rules:
+- 60-110 words. Casual-professional, warm, specific. No emojis.
+- Name the role and company exactly as given.
+- Cite ONE concrete piece of the candidate's real evidence (from the fit analysis or research) that maps to the job's top requirement. Never invent experience.
+- End with a light ask (a 15-minute chat) — never pushy, no "perfect fit" clichés."""
+
+
+async def linkedin_dm_text(
+    generate_fn: GenerateFn,
+    *,
+    candidate_name: str,
+    company: str,
+    role: str,
+    job_description: str,
+    research: str = "",
+    match_summary: str = "",
+) -> str:
+    """Generate the LinkedIn outreach message for a prepared job."""
+    prompt = (
+        f"Candidate: {candidate_name or 'The candidate'}\n"
+        f"Role: {role or 'the role'}\n"
+        f"Company: {company or 'the company'}\n\n"
+        f"FIT ANALYSIS:\n{match_summary or '(none)'}\n\n"
+        f"COMPANY RESEARCH:\n{research or '(none)'}\n\n"
+        f"JOB DESCRIPTION (excerpt):\n{_clip_jd(job_description)}"
+    )
+    response = await generate_fn(prompt, _DM_SYSTEM)
+    if response.error:
+        raise JobWorkflowError(response.error, hint=response.hint or "", status_code=502)
+    text = response.text.strip()
+    if not text:
+        raise JobWorkflowError("The endpoint returned an empty outreach message.", hint="Try again.", status_code=502)
+    return text
+
+
+def save_linkedin_dm(job_id: int, dm: str) -> JobApplication:
+    """Persist a generated LinkedIn outreach message on the tracked job."""
+    with Session(engine) as session:
+        row = session.get(JobApplication, job_id)
+        row.linkedin_dm = dm
+        session.commit()
+        session.refresh(row)
+        return row
+
+
+async def generate_linkedin_dm(generate_fn: GenerateFn, job_id: int) -> JobApplication:
+    """Generate and persist the LinkedIn DM for a prepared job."""
+    job = get_job(job_id)
+    _assert_prepared(job)
+    profile = get_profile_row()
+    dm = await linkedin_dm_text(
+        generate_fn,
+        candidate_name=profile.name,
+        company=job.company,
+        role=job.role,
+        job_description=job.job_description,
+        research=job.research,
+        match_summary=job.match_summary,
+    )
+    return save_linkedin_dm(job_id, dm)

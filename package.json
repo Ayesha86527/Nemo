@@ -1,12 +1,13 @@
 {
-  "name": "nemo",
-  "version": "0.1.0",
-  "private": true,
-  "description": "Nemo — AI Career Co-Pilot for CS/SWE Students",
-  "scripts": {
-    "backend:dev": "cd backend && python -m app.main",
-    "frontend:dev": "cd frontend && npm run dev",
-    "frontend:install": "cd frontend && npm install",
-    "dev": "npm run backend:dev & npm run frontend:dev"
-  }
+    "name": "nemo",
+    "version": "0.2.0",
+    "private": true,
+    "description": "Nemo — Local-first AI Career Co-Pilot",
+    "scripts": {
+        "install:all": "cd backend && pip install -e \".[dev]\" && cd ../frontend && npm install",
+        "backend:dev": "cd backend && python -m app.main",
+        "backend:test": "cd backend && python -m pytest -q",
+        "dev": "cd frontend && npm run dev"
+    },
+    "license": "MIT"
 }

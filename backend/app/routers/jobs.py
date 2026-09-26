@@ -11,11 +11,13 @@ from app.db.engine import engine
 from app.db.models import CoverLetter, JobApplication
 from app.deps import now_iso
 from app.jobs.service import (
+    ALIGNMENT_THRESHOLD,
     PLACEHOLDER_COMPANY,
     PLACEHOLDER_ROLE,
     VALID_STATUSES,
     JobWorkflowError,
     create_cover_letter,
+    generate_linkedin_dm,
     list_cover_letters,
     prepare_job,
     quick_prepare,
@@ -81,6 +83,8 @@ def _out(job: JobApplication) -> dict:
         "match_score": job.match_score,
         "match_summary": job.match_summary,
         "research": job.research,
+        "linkedin_dm": job.linkedin_dm,
+        "aligned": job.match_score is not None and job.match_score >= ALIGNMENT_THRESHOLD,
         "prepared": bool(job.prepared_at),
         "prepared_at": job.prepared_at,
         "created_at": job.created_at,
@@ -159,6 +163,42 @@ async def delete_job(job_id: int):
         session.delete(row)
         session.commit()
     return {"deleted": job_id}
+
+
+@router.post("/find-or-create")
+async def find_or_create_job(payload: QuickRequest):
+    """Finds an existing matching job or creates a new one (unprepared)."""
+    from app.jobs.service import find_existing_job
+    job = find_existing_job(payload.job_description, payload.company, payload.role)
+    if not job:
+        with Session(engine) as session:
+            job = JobApplication(
+                company=payload.company.strip() or PLACEHOLDER_COMPANY,
+                role=payload.role.strip() or PLACEHOLDER_ROLE,
+                job_description=payload.job_description.strip(),
+                status="wishlist",
+                created_at=now_iso(),
+            )
+            session.add(job)
+            session.commit()
+            session.refresh(job)
+    return _out(job)
+
+
+@router.post("/quick-analyze")
+async def quick_analyze(payload: QuickRequest):
+    """Paste a JD → auto-tracked, parsed (company/role), researched, and scored.
+
+    This is the automated job analysis entry point: no manual prepare step.
+    Returns the full job row including the fit verdict and company research.
+    """
+    try:
+        job = await quick_prepare(generate, payload.job_description, payload.company, payload.role)
+    except JobWorkflowError as exc:
+        raise _workflow_error_response(exc) from exc
+    except PreparationError as exc:
+        raise HTTPException(502, detail={"error": str(exc), "hint": exc.hint}) from exc
+    return _out(job)
 
 
 @router.post("/quick-tailor")
@@ -257,3 +297,14 @@ async def cover_letter(job_id: int):
 async def cover_letters(job_id: int):
     _get_or_404(job_id)
     return [_letter_out(r) for r in list_cover_letters(job_id)]
+
+
+@router.post("/{job_id}/linkedin-dm")
+async def linkedin_dm(job_id: int):
+    """Generate (or regenerate) the LinkedIn outreach message for a prepared job."""
+    _get_or_404(job_id)
+    try:
+        row = await generate_linkedin_dm(generate, job_id)
+    except JobWorkflowError as exc:
+        raise _workflow_error_response(exc) from exc
+    return _out(row)

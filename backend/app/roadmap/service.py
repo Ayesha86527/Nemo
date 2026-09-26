@@ -35,39 +35,24 @@ class RoadmapPlan:
     milestones: list[dict] = field(default_factory=list)  # [{title, focus, steps:[{task,done}]}]
 
 
-_SYSTEM = """You are a career coach building a personalized learning roadmap.
+_SYSTEM = """You are a career coach building a personalized roadmap.
 Respond with STRICT JSON only, no markdown, matching exactly:
 {"goal": "<one-sentence destination>",
  "horizon_weeks": <integer matching the requested duration, or your own sensible choice if none was requested>,
  "milestones": [{"title": "<short milestone name>",
                  "focus": "<what this milestone achieves, naming the gap skill(s) it closes>",
                  "steps": ["<concrete actionable step>", ...]}]}
-Reason through the plan in this order:
-STEP 1 — Strategic Market Alignment (do this FIRST, before proposing anything):
-- Cross-reference the candidate's CV/profile against the market gap analysis. The gap analysis is the source of truth for WHICH SKILLS this roadmap closes and for what the market actually rewards right now.
-- Read each relevant skill's status from the analysis ("have", "partial", "missing"). The roadmap's job is to close the market-relevant "missing" and "partial" gaps the candidate has not already proven — never retrain what they already have.
-- Every milestone except "Portfolio Projects" must target skills the analysis marks "missing" or "partial", and name those skills in its focus. Cover the most critical missing skills first; weave the analysis' recommendations into the steps.
-- Never add training the gap analysis does not justify.
-STEP 2 — Project Originality & Impact (apply to every project you propose):
-- Before finalizing the Portfolio Projects, evaluate each proposed project for originality and market impact against the tropes that saturate current (2026) portfolios in the candidate's target domain.
-- FLAG and avoid clichéd, overdone starter projects — e.g. basic chatbots, thin generic API/LLM wrappers, and Titanic-style or other toy predictors — anything a reviewer has seen a hundred times that proves little.
-- Prefer high-impact, differentiated work the gap analysis shows is actually in demand for the target role. For AI/LLM-oriented roles this means projects such as multi-agent systems, production-grade RAG with explicit failure/eval analysis, or LLM evaluation harnesses built on tools like DeepEval/Ragas; for any other domain, choose the equivalent highest-leverage, least-common, market-demanded work — never force an AI project onto a non-AI role.
-- Each project must be named specifically, exercise the gap skills, and be set in the DOMAIN FOCUS domain when one is given (otherwise the target role's own domain). Never present a proposed project as work the candidate has already done.
-STEP 3 — User Preferences (BINDING — these override the defaults above where they conflict):
-- When a USER PREFERENCES block is included, treat it as hard requirements, not suggestions. Honor every part exactly.
-- If the user states how many projects they want, the plan must contain EXACTLY that many distinct projects in total across all milestones — never more. Organize the milestones so the gap skills are learned by building those specific projects.
-- If the user names project themes (in any sector), those exact themes ARE the projects — do not substitute, rename, or add others.
-- If the user wants only NEW projects (not their existing ones), never make a past project the deliverable.
-- EXACTLY ONE milestone must be titled "Portfolio Projects": unless USER PREFERENCES already specify the projects, its steps propose 2-3 NEW projects that exercise the gap skills and clear the STEP 2 originality bar; when USER PREFERENCES do specify the projects, use exactly those instead (preferences win over originality — but you may note an originality concern in the milestone focus). These are projects for the candidate to build — never treat them as work already done.
+Build an explicit evidence-to-outcome map before proposing steps:
+1. Identify only the demonstrated candidate evidence, the named desired outcome, market evidence, requested horizon, focus, and preferences supplied in the prompt. Do not infer an industry, profession, seniority, tools, prior work, or unstated preference.
+2. Sequence milestones from the candidate's demonstrated level through the market-relevant gaps ("partial" and "missing") toward the named outcome. State the relevant evidence and gap in each milestone's focus. Do not retrain capabilities already demonstrated or add training the supplied evidence does not justify.
+3. Make the requested horizon realistic: prioritize the critical path for a short horizon and add justified depth for a longer one. When re-planning, synthesize a new sequence rather than relabeling old milestones.
+4. Treat USER PREFERENCES and DOMAIN FOCUS as binding. If the user specifies a number of projects, work samples, or other deliverables, retain that number exactly. If they supply themes, retain them exactly. Never add default deliverables, substitute a theme, or present proposed work as experience the candidate already has.
+5. Propose an artifact, project, or work sample only when it directly serves supplied evidence, a market gap, and the stated context. Test it for being distinct, relevant, appropriately scoped, and demonstrable; do not use a fixed template or catalog of examples.
+6. If the CV/profile or market evidence is sparse, explicitly say the plan is limited and make the next action request the missing context. Do not invent a path to fill the gap.
 Grounding (no fabrication):
-- Do NOT invent precise figures the user never gave and the CV/gap analysis does not contain: no made-up accuracy thresholds, latency targets, dataset sizes, model version numbers, or third-party product/API names.
-- Keep steps concrete and achievable by describing the capability ("build an evaluation suite that blocks low-scoring deploys"), not fictional specifics ("block PRs below a 95% score on 50 queries").
-- Name a specific tool only where the gap analysis, the CV, or STEP 2's guidance already implies it; otherwise describe the skill, not a fabricated stack.
-Re-planning (when a CURRENT ROADMAP is included):
-- Re-synthesize the plan from the gaps for the new horizon — never reuse the old milestones with a new week count.
-- Shorter horizon: merge related milestones, drop nice-to-have steps, keep only the critical path; every week must carry more outcomes than before.
-- Longer horizon: add real depth (new milestones, deeper practice, shipped artifacts) for the same gaps — never stretched filler.
-The result must be a flexible, data-backed roadmap that prioritizes uniqueness and market demand. Steps must be concrete (build, ship, learn, apply) and personalized to the candidate — no generic filler."""
+- Do not invent quantitative outcomes, company facts, tools, stacks, or prior experience. Name a specific tool only when it appears in supplied evidence.
+- Keep steps concrete, achievable, and tied to the evidence-to-outcome map. Use the action that fits the candidate's actual context; avoid generic filler.
+The result must be a concise, candidate-specific plan based only on supplied evidence."""
 
 
 def _density(horizon_weeks: int) -> tuple[int, int]:
@@ -126,10 +111,18 @@ def parse_roadmap(text: str) -> RoadmapPlan:
     return RoadmapPlan(goal=str(data.get("goal") or "").strip(), horizon_weeks=horizon, milestones=milestones)
 
 
-def latest_market_json() -> str:
+def latest_market_json(target_role: str = "") -> str:
+    """Return the newest report for the requested goal, not merely any report.
+
+    A report for a prior target can describe a completely different market, so
+    it must never silently become the strategic source of truth for a new plan.
+    """
     with Session(engine) as session:
-        row = session.exec(select(MarketIntelReport).order_by(desc(MarketIntelReport.id))).first()
-    return row.gap_report if row else ""
+        rows = session.exec(select(MarketIntelReport).order_by(desc(MarketIntelReport.id))).all()
+    if not target_role.strip():
+        return rows[0].gap_report if rows else ""
+    requested = target_role.strip().casefold()
+    return next((row.gap_report for row in rows if row.target_role.strip().casefold() == requested), "")
 
 
 async def market_context_json(generate_fn: GenerateFn, target_role: str, cv_context: str) -> str:
@@ -138,7 +131,7 @@ async def market_context_json(generate_fn: GenerateFn, target_role: str, cv_cont
     Guarantees every roadmap is grounded in market gaps even if the user never
     opened Market Intel.
     """
-    existing = latest_market_json()
+    existing = latest_market_json(target_role)
     if existing:
         return existing
     report = await MarketIntelligenceEngine(generate_fn).run_gap_analysis(
@@ -186,10 +179,8 @@ class RoadmapService:
         focus_block = ""
         if focus.strip():
             focus_block = (
-                f"\n\nDOMAIN FOCUS (requested by the user): {focus.strip()}. Set the Portfolio Projects "
-                f"milestone and every project or worked example in the steps in this domain specifically, "
-                f"while still targeting the same gap skills from the analysis. These are projects for the "
-                f"candidate to build now — do not present them as work they have already done."
+                f"\n\nDOMAIN FOCUS (requested by the user, binding): {focus.strip()}. Keep every "
+                f"recommendation within this context while still targeting the supplied market gaps."
             )
         duration_block = ""
         if horizon_weeks:

@@ -3,7 +3,25 @@
    Palette: #272838 navy (ink) · #F3DE8A gold (highlight) ·
             #EB9486 coral (accent) · #7E7F9A mist (muted) ·
             #F9F8F8 ivory (surface)
-   Type:    Montserrat (display) · Inter (UI)               */
+   Type:    Montserrat (display) · Inter (UI)
+   Fonts are self-hosted (variable, latin subset) so a fully local app
+   never phones Google Fonts.                                        */
+
+/* Variable fonts: one file per family covers all weights used below. */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/inter-latin.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Montserrat";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/montserrat-latin.woff2") format("woff2");
+}
 
 :root {
   --bg: #f9f8f8;
@@ -295,6 +313,34 @@ th { color: var(--text-faint); font-weight: 600; font-size: 11.5px; text-transfo
   max-height: 480px;
   overflow-y: auto;
 }
+.report-compact { max-height: 140px; }
+.report-research { max-height: 220px; }
+
+/* --- Generated output hierarchy --- */
+.output-section + .output-section { margin-top: 22px; }
+.section-heading { margin-bottom: 12px; }
+.section-kicker {
+  margin: 0 0 4px;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.section-heading h2, .section-heading h3 { margin: 0; }
+.section-heading h3, .viz-block h4 {
+  color: var(--text);
+  font-family: "Montserrat", "Inter", sans-serif;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.viz-block h4 { margin: 0 0 10px; }
+.output-summary { padding-bottom: 18px; border-bottom: 1px solid var(--border-soft); }
+.output-evidence { padding: 18px; border: 1px solid var(--border-soft); border-radius: 12px; background: var(--bg-raise); }
+.output-actions { padding: 18px; border-left: 3px solid var(--coral); background: rgba(235, 148, 134, 0.06); border-radius: 0 12px 12px 0; }
+.output-title { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.35; }
+.output-meta, .output-note { margin: 6px 0 0; color: var(--text-faint); font-size: 12px; line-height: 1.6; }
 
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 20px; }
 .stat {
@@ -496,7 +542,7 @@ tr.row-overdue td { background: rgba(198, 90, 78, 0.05); }
   gap: 12px;
 }
 .chat-empty { color: var(--text-dim); font-size: 14px; line-height: 1.7; }
-.chat-msg { display: flex; flex-direction: column; animation: fadeUp 0.25s var(--ease); }
+.chat-msg { display: flex; flex-direction: column; animation: fadeUp 0.25s var(--ease); margin-bottom: 14px; }
 .chat-user { align-items: flex-end; }
 .chat-agent { align-items: flex-start; }
 .chat-bubble {
@@ -526,10 +572,26 @@ tr.row-overdue td { background: rgba(198, 90, 78, 0.05); }
 }
 .chat-cv-card-title { font-size: 13.5px; font-weight: 600; }
 .chat-cv-card-note { margin: 0; font-size: 12px; color: var(--text-dim); line-height: 1.6; }
+.chat-speak-btn { flex: 0 0 auto; font-size: 13px; padding: 2px 8px; margin-top: 2px; line-height: 1.4; }
 
-.chat-input-row { display: flex; gap: 10px; padding: 14px 20px 6px; border-top: 1px solid var(--border-soft); align-items: center; }
+.chat-input-row { display: flex; gap: 10px; padding: 14px 20px 10px; border-top: 1px solid var(--border); align-items: center; background: var(--bg-raise); }
 .chat-input-row input { flex: 1; }
-.mic-btn { font-size: 16px; flex: 0 0 auto; }
+
+/* Voice input is its own visually separate control, divided from the text
+   input — never blends into the chat history or the text field. */
+.mic-btn {
+  font-size: 16px;
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-panel);
+  margin-left: 2px;
+}
 .mic-btn.mic-active { border-color: var(--coral-deep); color: var(--coral-deep); animation: pulse 1.2s infinite; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 
@@ -594,65 +656,101 @@ tr.row-overdue td { background: rgba(198, 90, 78, 0.05); }
 .step-row:hover { background: rgba(39, 40, 56, 0.04); }
 .step-row.step-done span { text-decoration: line-through; color: var(--text-faint); }
 
-/* --- Floating contextual agent --- */
-.agent-fab {
-  position: fixed;
-  right: 26px;
-  bottom: 26px;
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--bg-panel);
-  cursor: pointer;
-  box-shadow: var(--shadow-md);
-  z-index: 40;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.18s var(--ease), box-shadow 0.18s var(--ease);
-}
-.agent-fab:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-lg);
+@media (max-width: 640px) {
+  .main { padding: 24px 18px; }
+  .card { padding: 18px; }
+  .market-hero, .roadmap-hero { align-items: flex-start; gap: 16px; }
+  .output-evidence, .output-actions { padding: 14px; }
+  .gap-row { grid-template-columns: minmax(100px, 1fr) 48px; }
+  .gap-track { grid-column: 1 / -1; grid-row: 2; }
+  .gap-status { text-align: right; }
+  .job-detail { display: block; overflow-x: auto; }
 }
 
-.agent-panel {
-  position: fixed;
-  right: 26px;
-  bottom: 26px;
-  width: 420px;
-  max-width: calc(100vw - 52px);
-  max-height: calc(100vh - 80px);
+/* --- Floating contextual agent --- */
+.agent-panel .chat-scroll { min-height: 220px; max-height: 44vh; padding: 14px; }
+.agent-panel .chat-input-row { padding: 10px 14px 4px; }
+.agent-panel .chat-footer { padding: 4px 14px 10px; }
+
+/* ── Nemo dedicated view ─────────────────────────────────────────── */
+.nemo-view {
   display: flex;
   flex-direction: column;
+  height: calc(100vh - 96px);
   background: var(--bg-panel);
   border: 1px solid var(--border-soft);
   border-radius: 16px;
   overflow: hidden;
-  box-shadow: var(--shadow-lg);
-  z-index: 40;
-  animation: panelIn 0.24s var(--ease);
+  box-shadow: var(--shadow-sm);
 }
-@keyframes panelIn {
-  from { opacity: 0; transform: translateY(10px) scale(0.99); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-.agent-panel-head {
+.nemo-view-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
+  padding: 12px 18px;
   border-bottom: 1px solid var(--border-soft);
   font-weight: 600;
-  font-size: 14px;
 }
-.agent-panel-head > span { display: inline-flex; align-items: center; gap: 8px; }
-.agent-panel-head-actions { display: flex; gap: 6px; }
-.agent-panel-head-actions .ghost { padding: 4px 10px; font-size: 12px; }
-.agent-panel .chat-scroll { min-height: 220px; max-height: 44vh; padding: 14px; }
-.agent-panel .chat-input-row { padding: 10px 14px 4px; }
-.agent-panel .chat-footer { padding: 4px 14px 10px; }
+.nemo-view-head > span { display: inline-flex; align-items: center; gap: 8px; }
+.nemo-view .chat-scroll { flex: 1; max-height: none; padding: 18px 22px; overflow-y: auto; }
+.nemo-view .chat-input-row {
+  padding: 14px 22px 8px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-raise);
+  box-shadow: 0 -6px 14px -12px rgba(39, 40, 56, 0.25);
+}
+.nemo-view .chat-footer { padding: 6px 22px 12px; background: var(--bg-raise); border-top: 1px dashed var(--border-soft); }
+
+/* ── Quick JD auto-analysis ──────────────────────────────────────── */
+.quick-jd textarea {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-input);
+  color: var(--text);
+  margin-bottom: 10px;
+}
+.quick-jd-result { margin-top: 14px; border-top: 1px solid var(--border-soft); padding-top: 14px; }
+.quick-jd-verdict { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.quick-jd-verdict p { margin: 2px 0 0; color: var(--text-dim); font-size: 13px; }
+.quick-jd-score { display: flex; flex-direction: column; align-items: center; min-width: 64px; }
+.quick-jd-score strong { font-size: 24px; }
+.quick-jd-score span { font-size: 11px; color: var(--text-faint); }
+
+/* Action buttons under the verdict need room to breathe and a touch more
+   presence than inline ghosts — they are primary next-step controls. */
+.quick-jd-result .cv-file-actions {
+  margin: 14px 0 4px;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.quick-jd-result .cv-file-actions button { padding: 9px 18px; }
+.badge {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.badge-green { background: rgba(61, 131, 104, 0.12); color: var(--green); border-color: transparent; }
+.badge-warn { background: rgba(154, 123, 24, 0.12); color: var(--yellow); border-color: transparent; }
+.quick-jd-dm { margin-top: 12px; }
+.quick-jd-dm p { margin: 4px 0 8px; font-size: 13.5px; line-height: 1.6; }
+.quick-jd-research summary { cursor: pointer; color: var(--text-dim); font-size: 13px; margin-top: 10px; }
+
+/* ── Market sources ──────────────────────────────────────────────── */
+.source-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.source-list li { display: flex; flex-direction: column; gap: 1px; font-size: 13px; }
+.source-claim { color: var(--text); }
+.source-name { color: var(--text-faint); font-size: 12px; }
+.source-inferred { color: var(--text-dim); }
+
+/* ── Minimalist adjustments ───────────────────────────────────────── */
+.card.danger-zone { border-style: dashed; }
+.main > h1 { margin-bottom: 2px; }
 .agent-panel-error { margin: 0 14px; }
 
 /* --- Welcome screen --- */

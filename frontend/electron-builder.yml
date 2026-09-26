@@ -1,0 +1,35 @@
+appId: app.nemo.career
+productName: Nemo
+copyright: Copyright (c) Nemo Contributors
+
+directories:
+  output: release
+  buildResources: build
+
+# main.js/preload.js (tsc) plus the staged renderer (esbuild bundle + html/css/
+# fonts) are all self-contained; runtime node_modules are not needed.
+files:
+  - dist/**
+  - package.json
+
+# Bundled Python sidecar built with PyInstaller (see ../PACKAGING.md).
+# Expected at frontend/resources/backend/nemo-backend(.exe) before `npm run dist`.
+# When absent, the app falls back to spawning `python -m app.main` from this
+# directory (developer machines).
+extraResources:
+  - from: resources/backend
+    to: backend
+  - from: ../backend
+    to: backend-src
+    filter:
+      - app/**/*.py
+      - pyproject.toml
+
+win:
+  target: nsis
+mac:
+  target: dmg
+  category: public.app-category.business
+linux:
+  target: AppImage
+  category: Office

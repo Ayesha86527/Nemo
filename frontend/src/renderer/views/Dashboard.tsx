@@ -11,11 +11,11 @@ import {
   listCoverLetters,
   listJobs,
   prepareJob,
-  quickCoverLetter,
-  quickTailorJob,
   tailorJob,
   updateJob,
+  stripMarkdown,
 } from "../api/client";
+import QuickJD from "../components/QuickJD";
 
 const STATUSES: JobStatus[] = ["wishlist", "applied", "interview", "offer", "rejected"];
 
@@ -178,8 +178,13 @@ function JobRow({ job }: { job: JobApplication }) {
               </div>
             )}
 
-            <div className="job-actions">
-              <button className="primary" style={{ marginTop: 0 }} onClick={onPrepare} disabled={Boolean(ui.busy) || !job.job_description}>
+            <section className="output-section output-actions" aria-labelledby={`job-actions-${job.id}`}>
+              <div className="section-heading">
+                <p className="section-kicker">Next actions</p>
+                <h3 id={`job-actions-${job.id}`}>Prepare your application</h3>
+              </div>
+              <div className="job-actions">
+              <button className="primary" onClick={onPrepare} disabled={Boolean(ui.busy) || !job.job_description}>
                 {job.prepared ? "Re-run preparation" : "Prepare (match + research)"}
               </button>
               <button className="ghost" onClick={onTailor} disabled={Boolean(ui.busy) || !job.prepared}>
@@ -190,6 +195,7 @@ function JobRow({ job }: { job: JobApplication }) {
               </button>
               <button className="ghost" onClick={onDelete}>Delete job</button>
             </div>
+            </section>
             {!job.job_description && (
               <p className="msg-info">Add the job description below, then run Prepare.</p>
             )}
@@ -199,8 +205,12 @@ function JobRow({ job }: { job: JobApplication }) {
               </p>
             )}
 
-            <label>Job description</label>
-            <textarea
+            <section className="output-section" aria-labelledby={`job-context-${job.id}`}>
+              <div className="section-heading">
+                <p className="section-kicker">Context</p>
+                <h3 id={`job-context-${job.id}`}>Job description</h3>
+              </div>
+              <textarea
               rows={6}
               defaultValue={job.job_description}
               onBlur={async (e) => {
@@ -211,17 +221,29 @@ function JobRow({ job }: { job: JobApplication }) {
               }}
               placeholder="Paste the full job posting…"
             />
+            </section>
 
             {job.prepared && (
-              <>
-                <label>Match analysis</label>
-                <div className="report" style={{ maxHeight: 140 }}>
-                  {job.match_score != null ? `Match score: ${job.match_score}%\n` : ""}
-                  {job.match_summary || "(no summary)"}
+              <section className="output-section output-summary" aria-labelledby={`job-summary-${job.id}`}>
+                <div className="section-heading">
+                  <p className="section-kicker">Summary</p>
+                  <h3 id={`job-summary-${job.id}`}>Candidate match</h3>
                 </div>
-                <label>Company / role research</label>
-                <div className="report" style={{ maxHeight: 220 }}>{job.research}</div>
-              </>
+                <div className="report report-compact">
+                  {job.match_score != null ? `Match score: ${job.match_score}%\n` : ""}
+                  {stripMarkdown(job.match_summary) || "(no summary)"}
+                </div>
+              </section>
+            )}
+
+            {job.prepared && (
+              <section className="output-section output-evidence" aria-labelledby={`job-evidence-${job.id}`}>
+                <div className="section-heading">
+                  <p className="section-kicker">Evidence</p>
+                  <h3 id={`job-evidence-${job.id}`}>Company and role research</h3>
+                </div>
+                <div className="report report-research">{stripMarkdown(job.research)}</div>
+              </section>
             )}
 
             {letters && letters.length > 0 && (
@@ -245,7 +267,7 @@ function JobRow({ job }: { job: JobApplication }) {
                         </button>
                       </div>
                     </div>
-                    <div className="report" style={{ maxHeight: 260 }}>{letter.content}</div>
+                    <div className="report" style={{ maxHeight: 260 }}>{stripMarkdown(letter.content)}</div>
                   </div>
                 ))}
               </>
@@ -261,61 +283,20 @@ export default function Dashboard() {
   const queryClient = useQueryClient();
   const jobsQ = useQuery({ queryKey: ["jobs"], queryFn: listJobs });
 
-  const [qJd, setQJd] = useState("");
-  const [qCompany, setQCompany] = useState("");
-  const [qRole, setQRole] = useState("");
-  const [qBusy, setQBusy] = useState<"" | "tailor" | "letter">("");
-  const [qError, setQError] = useState("");
-  const [qHint, setQHint] = useState("");
-  const [qSuccess, setQSuccess] = useState("");
-
   const jobs = jobsQ.data ?? [];
   const active = jobs.filter((j) => j.status === "applied" || j.status === "interview").length;
   const interviews = jobs.filter((j) => j.status === "interview").length;
   const dueFollowUps = jobs.filter((j) => isFollowUpDue(j)).length;
 
-  const quickRun = async (mode: "tailor" | "letter") => {
-    setQError("");
-    setQHint("");
-    setQSuccess("");
-    if (!qJd.trim()) {
-      setQError("Paste the job description first.");
-      return;
-    }
-    setQBusy(mode);
-    const payload = { job_description: qJd.trim(), company: qCompany.trim(), role: qRole.trim() };
-    try {
-      if (mode === "tailor") {
-        const out = await quickTailorJob(payload);
-        downloadBlob(out.blob, out.filename);
-        setQSuccess(
-          `Job tracked automatically. Tailored CV downloaded (${out.editsApplied} edits applied, ${out.editsSkipped} skipped). ${out.summary}`
-        );
-      } else {
-        const out = await quickCoverLetter(payload);
-        setQSuccess(
-          `Job tracked automatically — cover letter saved for ${out.job.company} (${out.job.role}). Expand the row below to view or copy it.`
-        );
-      }
-      setQJd("");
-      setQCompany("");
-      setQRole("");
-    } catch (err) {
-      setQError(err instanceof ApiRequestError ? err.message : String(err));
-      if (err instanceof ApiRequestError) setQHint(err.hint);
-    } finally {
-      setQBusy("");
-      queryClient.invalidateQueries({ queryKey: ["jobs"] });
-    }
-  };
-
   return (
     <>
       <h1>Job Tracker</h1>
       <p className="subtitle">
-        No manual entries — tailor a CV or write a cover letter for any posting and the application
-        is tracked here automatically (match analysis + research included).
+        Paste a posting below — Nemo parses it, researches the company, and scores your fit.
+        Everything it generates is tracked here automatically.
       </p>
+
+      <QuickJD />
 
       <div className="stat-grid">
         <div className="stat">
@@ -339,50 +320,9 @@ export default function Dashboard() {
       </div>
 
       <div className="card">
-        <h2>Quick apply — zero entry</h2>
-        <p className="msg-info" style={{ marginTop: 0 }}>
-          Paste a job posting and go. Nemo runs the mandatory role-match analysis + company research,
-          then tracks the application here automatically.
-        </p>
-        <div className="row">
-          <input
-            value={qCompany}
-            onChange={(e) => setQCompany(e.target.value)}
-            placeholder="Company (optional — Nemo extracts it from the posting)"
-          />
-          <input
-            value={qRole}
-            onChange={(e) => setQRole(e.target.value)}
-            placeholder="Role (optional — Nemo extracts it from the posting)"
-          />
-        </div>
-        <textarea
-          rows={5}
-          value={qJd}
-          onChange={(e) => setQJd(e.target.value)}
-          placeholder="Paste the full job description…"
-        />
-        <div className="job-actions">
-          <button className="primary" style={{ marginTop: 0 }} onClick={() => quickRun("tailor")} disabled={Boolean(qBusy)}>
-            {qBusy === "tailor" ? "Preparing + tailoring…" : "Tailor my CV for this job"}
-          </button>
-          <button className="ghost" onClick={() => quickRun("letter")} disabled={Boolean(qBusy)}>
-            {qBusy === "letter" ? "Preparing + writing…" : "Write cover letter"}
-          </button>
-        </div>
-        {qSuccess && <div className="msg-success">{qSuccess}</div>}
-        {qError && (
-          <div className="msg-error">
-            {qError}
-            {qHint && <span className="hint">💡 {qHint}</span>}
-          </div>
-        )}
-      </div>
-
-      <div className="card">
         <h2>Applications</h2>
         {jobs.length === 0 ? (
-          <p className="msg-info">No applications yet — tailor a CV or write a cover letter above to track your first job.</p>
+          <p className="msg-info">No applications yet — analyze a posting above to track your first job.</p>
         ) : (
           <table className="jobs-table">
             <thead>

@@ -56,10 +56,10 @@ export default function CVStudio() {
     downloadBlob(blob, filename);
   };
 
-  const onRender = async () => {
+  const onRender = async (format: "docx" | "pdf") => {
     setContentError("");
     try {
-      const { blob, filename } = await renderCV();
+      const { blob, filename } = await renderCV(format);
       downloadBlob(blob, filename);
     } catch (err) {
       setContentError(err instanceof ApiRequestError ? `${err.message} ${err.hint}`.trim() : String(err));
@@ -83,11 +83,11 @@ export default function CVStudio() {
       </p>
 
       <div className="card">
-        <h2>1 · Your CV file</h2>
+        <h2>Your CV file</h2>
         <input
           ref={fileRef}
           type="file"
-          accept=".docx"
+          accept=".docx,.pdf,.txt"
           style={{ display: "none" }}
           onChange={(e) => {
             const f = e.target.files?.[0];
@@ -113,7 +113,7 @@ export default function CVStudio() {
           </div>
         ) : (
           <div className="file-drop" onClick={() => fileRef.current?.click()}>
-            Click to choose a .docx file — it is stored in ~/.nemo, no re-upload needed
+            Click to choose a .docx, .pdf, or .txt file — it is stored in ~/.nemo, no re-upload needed
           </div>
         )}
         {parsing ? (
@@ -128,7 +128,7 @@ export default function CVStudio() {
       </div>
 
       <div className="card">
-        <h2>2 · CV content (read-only)</h2>
+        <h2>CV content</h2>
         <p className="msg-info">
           Content is managed by the Nemo Agent. Open the Nemo panel and say things like
           “Add FastAPI to my skills” or “Add my internship at Acme, Jan–Jun 2025”.
@@ -190,7 +190,10 @@ export default function CVStudio() {
               </>
             )}
 
-            <button className="ghost" onClick={onRender}>Download rendered .docx</button>
+            <div className="cv-file-actions">
+              <button className="ghost" onClick={() => onRender("docx")}>Download Word</button>
+              <button className="ghost" onClick={() => onRender("pdf")}>Download PDF</button>
+            </div>
           </>
         )}
         {contentError && <div className="msg-error">{contentError}</div>}

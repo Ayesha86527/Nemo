@@ -5,6 +5,7 @@ declare global {
     nemoAPI: {
       getBackendUrl: () => string;
       getBackendError?: () => string;
+      getAuthToken?: () => string;
     };
   }
 }
@@ -15,19 +16,13 @@ export interface Settings {
   cloud_model: string;
 }
 
-export interface ModelCatalog {
-  provider: string;
-  current_model: string;
-  models: { id: string; name: string }[];
-  error: string | null;
-  hint: string | null;
-}
-
 export interface Profile {
   name: string;
   email: string;
   target_roles: string;
   education: string;
+  short_term_goal?: string;
+  long_term_goal?: string;
 }
 
 export interface CVStatus {
@@ -71,12 +66,18 @@ export interface SkillGap {
   note: string;
 }
 
+export interface MarketSourceRef {
+  claim: string;
+  source: string;
+}
+
 export interface MarketReportData {
   match_score: number | null;
   summary: string;
   skill_gaps: SkillGap[];
   market_signals: string[];
   recommendations: string[];
+  sources?: MarketSourceRef[];
 }
 
 export interface MarketStatus {
@@ -106,6 +107,8 @@ export interface JobApplication {
   match_score: number | null;
   match_summary: string;
   research: string;
+  linkedin_dm: string;
+  aligned: boolean;
   prepared: boolean;
   prepared_at: string;
   created_at: string;
@@ -185,7 +188,10 @@ export function getClient(): AxiosInstance {
       baseURL,
       // Above the backend's worst case with automatic retries (3x120s + backoff).
       timeout: 420000,
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Nemo-Token": window.nemoAPI.getAuthToken?.() || "",
+      },
     });
     _clientUrl = baseURL;
   }
@@ -251,13 +257,6 @@ export async function updateSettings(
   return (await getClient().put("/api/settings", patch)).data;
 }
 
-export async function listModels(baseUrl?: string, apiKey?: string): Promise<ModelCatalog> {
-  const params: Record<string, string> = {};
-  if (baseUrl) params.base_url = baseUrl;
-  if (apiKey) params.api_key = apiKey;
-  return (await getClient().get("/api/llm/models", { params })).data;
-}
-
 export async function getProfile(): Promise<Profile> {
   return (await getClient().get("/api/profile")).data;
 }
@@ -305,12 +304,19 @@ export async function replaceCVFile(): Promise<CVStatus> {
   }
 }
 
-export async function renderCV(): Promise<{ blob: Blob; filename: string }> {
+export async function renderCV(format: "docx" | "pdf" = "docx"): Promise<{ blob: Blob; filename: string }> {
   try {
-    const resp = await getClient().post("/api/cv/render", {}, { responseType: "blob" });
+    const resp = await getClient().post(
+      `/api/cv/render?format=${format}`,
+      {},
+      { responseType: "blob" }
+    );
     return {
       blob: resp.data,
-      filename: filenameFromDisposition(String(resp.headers["content-disposition"] || ""), "cv.docx"),
+      filename: filenameFromDisposition(
+        String(resp.headers["content-disposition"] || ""),
+        format === "pdf" ? "cv.pdf" : "cv.docx"
+      ),
     };
   } catch (err) {
     throw await extractBlobError(err);
@@ -403,6 +409,36 @@ export interface QuickRequest {
   role?: string;
 }
 
+export async function quickAnalyzeJob(payload: QuickRequest): Promise<JobApplication> {
+  try {
+    return (await getClient().post("/api/jobs/quick-analyze", payload)).data;
+  } catch (err) {
+    throw extractError(err);
+  }
+}
+
+export async function generateLinkedInDM(jobId: number): Promise<JobApplication> {
+  try {
+    return (await getClient().post(`/api/jobs/${jobId}/linkedin-dm`)).data;
+  } catch (err) {
+    throw extractError(err);
+  }
+}
+
+export async function resetAllData(includeSettings = false): Promise<{ wiped: string[] }> {
+  return (
+    await getClient().post(`/api/system/reset?include_settings=${includeSettings}`)
+  ).data;
+}
+
+export async function findOrCreateJob(payload: QuickRequest): Promise<JobApplication> {
+  try {
+    return (await getClient().post("/api/jobs/find-or-create", payload)).data;
+  } catch (err) {
+    throw extractError(err);
+  }
+}
+
 export async function quickTailorJob(payload: QuickRequest): Promise<TailorOutcome & { jobId: number }> {
   try {
     const resp = await getClient().post("/api/jobs/quick-tailor", payload, { responseType: "blob" });
@@ -439,8 +475,82 @@ export async function agentChat(message: string, context = ""): Promise<AgentCha
   }
 }
 
+export type AgentStreamEvent =
+  | { type: "chunk"; text: string }
+  | { type: "done"; reply: string; changes: string[]; cv_updated: boolean }
+  | { type: "error"; error: string; hint: string };
+
+/**
+ * Streaming agent chat via Server-Sent Events.
+ * Calls the callback for each parsed event until "done" or "error" arrives.
+ * Returns the final AgentChatResponse on success, throws ApiRequestError on failure.
+ */
+export async function agentStream(
+  message: string,
+  context: string,
+  onChunk: (text: string) => void
+): Promise<AgentChatResponse> {
+  const baseURL = window.nemoAPI.getBackendUrl();
+  const resp = await fetch(`${baseURL}/api/agent/stream`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Nemo-Token": window.nemoAPI.getAuthToken?.() || "",
+    },
+    body: JSON.stringify({ message, context }),
+    signal: AbortSignal.timeout(420_000),
+  });
+  if (!resp.ok) {
+    let detail = `HTTP ${resp.status}`;
+    try {
+      const body = await resp.json();
+      detail = body?.detail?.error || body?.detail || detail;
+    } catch { /* ignore */ }
+    throw new ApiRequestError(String(detail), "Check that the backend is running.", resp.status);
+  }
+
+  const reader = resp.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n\n");
+    buffer = lines.pop() ?? "";
+    for (const block of lines) {
+      const dataLine = block.split("\n").find((l) => l.startsWith("data: "));
+      if (!dataLine) continue;
+      try {
+        const event: AgentStreamEvent = JSON.parse(dataLine.slice(6));
+        if (event.type === "chunk") {
+          onChunk(event.text);
+        } else if (event.type === "error") {
+          throw new ApiRequestError(event.error, event.hint, 502);
+        } else if (event.type === "done") {
+          return { reply: event.reply, changes: event.changes, cv_updated: event.cv_updated };
+        }
+      } catch (e) {
+        if (e instanceof ApiRequestError) throw e;
+        // malformed SSE line — skip
+      }
+    }
+  }
+  throw new ApiRequestError("Stream ended without a done event.", "Try again.", 502);
+}
+
+
 export async function agentHistory(limit = 100): Promise<AgentHistoryItem[]> {
   return (await getClient().get("/api/agent/history", { params: { limit } })).data;
+}
+
+export async function getAgentGreeting(): Promise<{
+  greeting: string;
+  onboarded: boolean;
+  missing: string[];
+}> {
+  return (await getClient().get("/api/agent/greeting")).data;
 }
 
 export async function clearAgentHistory() {
@@ -463,10 +573,23 @@ export async function transcribeAudio(blob: Blob): Promise<string> {
 
 // --- Roadmap ------------------------------------------------------------------
 
-export async function generateRoadmap(targetRole = "", horizonWeeks?: number): Promise<RoadmapData> {
+export interface RoadmapRequestOptions {
+  horizonWeeks?: number;
+  focus?: string;
+  preferences?: string;
+}
+
+export async function generateRoadmap(
+  targetRole = "",
+  { horizonWeeks, focus, preferences }: RoadmapRequestOptions = {}
+): Promise<RoadmapData> {
   try {
-    const payload: { target_role: string; horizon_weeks?: number } = { target_role: targetRole };
+    const payload: { target_role: string; horizon_weeks?: number; focus?: string; preferences?: string } = {
+      target_role: targetRole,
+    };
     if (horizonWeeks) payload.horizon_weeks = horizonWeeks;
+    if (focus?.trim()) payload.focus = focus.trim();
+    if (preferences?.trim()) payload.preferences = preferences.trim();
     return (await getClient().post("/api/roadmap/generate", payload)).data;
   } catch (err) {
     throw extractError(err);
@@ -489,6 +612,23 @@ export async function updateRoadmapStep(milestone: number, step: number, done: b
   } catch (err) {
     throw extractError(err);
   }
+}
+
+/**
+ * Strip markdown emphasis/heading artifacts from LLM plain-text output
+ * (**bold**, __it__, # headings, `code ticks`) so report panels never show
+ * raw asterisks. Paragraph structure (line breaks, - bullets) is preserved.
+ */
+export function stripMarkdown(text: string): string {
+  return String(text || "")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/(^|\s)\*([^*\n]+)\*(?=\s|$|[.,!?])/g, "$1$2")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/^---+$/gm, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
 }
 
 export function downloadBlob(blob: Blob, filename: string) {

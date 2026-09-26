@@ -3,9 +3,11 @@
 import json
 
 import pytest
+from sqlmodel import Session
 
+from app.db.models import MarketIntelReport
 from app.llm.providers import LLMResponse
-from app.roadmap.service import RoadmapError, RoadmapPlan, RoadmapService, parse_roadmap
+from app.roadmap.service import RoadmapError, RoadmapPlan, RoadmapService, latest_market_json, parse_roadmap
 
 VALID = json.dumps(
     {
@@ -52,6 +54,16 @@ class TestParseRoadmap:
 
 
 class TestRoadmapService:
+    def test_uses_market_report_for_the_requested_role(self, isolated_engine):
+        with Session(isolated_engine) as session:
+            session.add(MarketIntelReport(target_role="Museum educator", gap_report='{"role":"museum"}'))
+            session.add(MarketIntelReport(target_role="Community outreach coordinator", gap_report='{"role":"outreach"}'))
+            session.commit()
+
+        assert latest_market_json("Community outreach coordinator") == '{"role":"outreach"}'
+        assert latest_market_json("Museum educator") == '{"role":"museum"}'
+        assert latest_market_json("Unrelated role") == ""
+
     async def test_generate_returns_plan_and_provider(self):
         async def generate(prompt, system=None):
             return LLMResponse(text=VALID, provider="stub", model="m")
@@ -87,13 +99,20 @@ class TestRoadmapService:
         plan, _ = await RoadmapService(generate).generate("Backend Engineer", "CV", horizon_weeks=6)
         assert plan.horizon_weeks == 6
 
-    async def test_requested_duration_and_projects_rule_reach_prompt(self):
+    async def test_prompt_requires_evidence_to_outcome_and_honors_preferences(self):
         seen = []
 
         async def generate(prompt, system=None):
             seen.append((prompt, system))
             return LLMResponse(text=VALID, provider="stub", model="m")
 
-        await RoadmapService(generate).generate("Backend Engineer", "CV", horizon_weeks=6)
+        await RoadmapService(generate).generate(
+            "Community outreach coordinator", "Coordinated neighborhood events", horizon_weeks=6,
+            preferences="Create exactly one volunteer-training guide.",
+        )
         assert "6 weeks" in seen[0][0]
-        assert "Portfolio Projects" in seen[0][1]
+        assert "evidence-to-outcome map" in seen[0][1]
+        assert "Community outreach coordinator" in seen[0][0]
+        assert "exactly one volunteer-training guide" in seen[0][0]
+        assert "Portfolio Projects" not in seen[0][1]
+        assert "2-3 NEW projects" not in seen[0][1]

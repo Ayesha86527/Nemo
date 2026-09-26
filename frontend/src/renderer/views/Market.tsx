@@ -7,6 +7,7 @@ import {
   getProfile,
   listMarketReports,
   runMarketIntel,
+  stripMarkdown,
 } from "../api/client";
 import { Donut, GapBars, GapLegend } from "../components/charts";
 import type { View } from "../App";
@@ -86,7 +87,7 @@ export default function Market({ onNavigate }: Props) {
         <input
           value={role}
           onChange={(e) => setRole(e.target.value)}
-          placeholder={effectiveRole || "e.g. Backend Engineer"}
+          placeholder={effectiveRole || "Target role or career goal"}
         />
         <button className="primary" onClick={run} disabled={busy || !effectiveRole}>
           {busy ? "Analysing…" : "Run analysis"}
@@ -107,46 +108,57 @@ export default function Market({ onNavigate }: Props) {
 
       {latest && report && (
         <div className="card">
-          <h2>
-            Latest report — {latest.target_role}{" "}
-            <span className="badge" style={{ marginLeft: 8 }}>
-              {new Date(latest.created_at).toLocaleDateString()}
-            </span>
-          </h2>
-
-          <div className="market-hero">
-            {report.match_score !== null && (
-              <div className="donut-wrap">
-                <Donut value={report.match_score} caption="role match" />
-              </div>
-            )}
-            <p className="market-summary">{report.summary || "No summary available."}</p>
-          </div>
+          <section className="output-section output-summary" aria-labelledby="market-overview-heading">
+            <div className="section-heading">
+              <p className="section-kicker">Context & summary</p>
+              <h2 id="market-overview-heading">Latest report — {latest.target_role}</h2>
+              <p className="output-meta">Generated {new Date(latest.created_at).toLocaleDateString()} via {latest.provider}</p>
+            </div>
+            <div className="market-hero">
+              {report.match_score !== null && (
+                <div className="donut-wrap">
+                  <Donut value={report.match_score} caption="role match" />
+                </div>
+              )}
+              <p className="market-summary">{stripMarkdown(report.summary) || "No summary available."}</p>
+            </div>
+          </section>
 
           {hasVisuals ? (
             <>
-              {report.skill_gaps.length > 0 && (
-                <div className="viz-block">
-                  <h3>Skill gap analysis</h3>
-                  <GapBars gaps={report.skill_gaps} />
-                  <GapLegend />
-                </div>
-              )}
-
-              {report.market_signals.length > 0 && (
-                <div className="viz-block">
-                  <h3>In demand right now</h3>
-                  <div className="chips">
-                    {report.market_signals.map((signal, i) => (
-                      <span className="chip" key={i}>{signal}</span>
-                    ))}
+              {(report.skill_gaps.length > 0 || report.market_signals.length > 0) && (
+                <section className="output-section output-evidence" aria-labelledby="market-evidence-heading">
+                  <div className="section-heading">
+                    <p className="section-kicker">Evidence</p>
+                    <h3 id="market-evidence-heading">Market signals and demonstrated gaps</h3>
                   </div>
-                </div>
+                  {report.skill_gaps.length > 0 && (
+                    <div className="viz-block">
+                      <h4>Gap analysis</h4>
+                      <GapBars gaps={report.skill_gaps} />
+                      <GapLegend />
+                    </div>
+                  )}
+                  {report.market_signals.length > 0 && (
+                    <div className="viz-block">
+                      <h4>Market signals</h4>
+                      <div className="chips">
+                        {report.market_signals.map((signal, i) => (
+                          <span className="chip" key={i}>{signal}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </section>
               )}
 
+              <section className="output-section output-actions" aria-labelledby="market-actions-heading">
+                <div className="section-heading">
+                  <p className="section-kicker">Next actions</p>
+                  <h3 id="market-actions-heading">Turn evidence into progress</h3>
+                </div>
               {report.recommendations.length > 0 && (
                 <div className="viz-block">
-                  <h3>Next steps</h3>
                   <ol className="rec-list">
                     {report.recommendations.map((rec, i) => (
                       <li key={i}>{rec}</li>
@@ -155,15 +167,36 @@ export default function Market({ onNavigate }: Props) {
                 </div>
               )}
 
+              {report.sources && report.sources.length > 0 && (
+                <div className="viz-block">
+                  <h4>Sources & transparency</h4>
+                  <ul className="source-list">
+                    {report.sources.map((src, i) => (
+                      <li key={i}>
+                        {src.claim && <span className="source-claim">{src.claim}</span>}
+                        <span className={`source-name ${src.source.startsWith("reasoned") ? "source-inferred" : ""}`}>
+                          {src.source.startsWith("reasoned") ? "🧠 " : "🔗 "}
+                          {src.source}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="output-note">
+                    Market claims are labeled with their origin; claims derived only from your own
+                    CV are marked as inferred rather than sourced.
+                  </p>
+                </div>
+              )}
+
               <div className="viz-block">
-                <h3>Turn gaps into a plan</h3>
-                <p className="msg-info" style={{ marginTop: 0 }}>
+                <p className="output-note">
                   The Nemo Agent can convert this analysis into a personalized, checkable roadmap.
                 </p>
-                <button className="primary" style={{ marginTop: 4 }} onClick={buildRoadmap} disabled={roadmapBusy}>
+                <button className="primary" onClick={buildRoadmap} disabled={roadmapBusy}>
                   {roadmapBusy ? "Planning…" : "Generate my roadmap"}
                 </button>
               </div>
+              </section>
             </>
           ) : (
             <div className="report">{report.summary}</div>

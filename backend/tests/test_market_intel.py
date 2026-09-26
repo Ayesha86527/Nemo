@@ -66,6 +66,18 @@ class TestLLMInsightSource:
         with pytest.raises(MarketIntelError):
             await source.gather("Backend Engineer")
 
+    async def test_market_prompt_is_role_and_industry_neutral(self):
+        seen = []
+
+        async def generate(prompt, system=None):
+            seen.append((prompt, system))
+            return LLMResponse(text="Demand for community engagement planning.", provider="stub", model="m")
+
+        await LLMInsightSource(generate).gather("Community outreach coordinator")
+        assert "Community outreach coordinator" in seen[0][0]
+        assert "technical skills" not in seen[0][0]
+        assert "industry-aware" in seen[0][1]
+
 
 class TestParseReport:
     def test_parses_valid_json(self):
@@ -91,7 +103,7 @@ class TestParseReport:
     def test_raw_text_degrades_to_summary(self):
         report = parse_report("# Gap Analysis\nplain markdown, no json")
         assert report["match_score"] is None
-        assert "Gap Analysis" in report["summary"]
+        assert "could not be structured" in report["summary"]
         assert report["skill_gaps"] == []
 
 
@@ -141,8 +153,23 @@ class TestMarketIntelligenceEngine:
         report = await engine.run_gap_analysis("Backend Engineer", cv_context="")
         assert report.report["match_score"] == 72
 
+    async def test_gap_prompt_requires_candidate_evidence_without_technical_defaults(self):
+        seen = []
+
+        async def generate(prompt, system=None):
+            seen.append((prompt, system))
+            return LLMResponse(text=VALID_JSON, provider="stub", model="m")
+
+        await MarketIntelligenceEngine(generate).run_gap_analysis(
+            "Museum educator", cv_context="Led family learning sessions"
+        )
+        gap_system = next(system for _, system in seen if system and "career strategist" in system)
+        assert "Museum educator" in "\n".join(prompt for prompt, _ in seen)
+        assert "Never assume an industry, profession, toolset" in gap_system
+        assert "Led family learning sessions" in "\n".join(prompt for prompt, _ in seen)
+
     async def test_unparseable_llm_output_degrades_to_summary(self):
         engine = self._engine(llm_text="Sorry, I cannot comply.")
         report = await engine.run_gap_analysis("Backend Engineer")
         assert report.report["match_score"] is None
-        assert "cannot comply" in report.report["summary"]
+        assert "could not be structured" in report.report["summary"]

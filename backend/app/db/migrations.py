@@ -33,6 +33,8 @@ EXTRA_COLUMNS = {
     "settings": NEW_SETTINGS_COLUMNS,
     "cvcontent": {"projects_json": "''"},
     "roadmap": {"focus": "''", "preferences": "''"},
+    "userprofile": {"short_term_goal": "''", "long_term_goal": "''"},
+    "jobapplication": {"linkedin_dm": "''"},
 }
 
 

@@ -6,22 +6,27 @@
   "scripts": {
     "typecheck": "tsc",
     "bundle": "esbuild src/renderer/index.tsx --bundle --outfile=dist/renderer/bundle.js --loader:.tsx=tsx --define:process.env.NODE_ENV=\\\"production\\\" --sourcemap",
-    "build": "tsc && npm run bundle",
+    "stage": "node scripts/stage-renderer.mjs",
+    "build": "tsc && npm run bundle && npm run stage",
     "dev": "npm run build && electron .",
-    "start": "electron ."
+    "start": "electron .",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:linux": "npm run build && electron-builder --linux"
   },
-  "dependencies": {
+  "dependencies": {},
+  "devDependencies": {
+    "@tanstack/react-query": "^5.60.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "axios": "^1.7.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "esbuild": "^0.24.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "@tanstack/react-query": "^5.60.0",
-    "axios": "^1.7.0"
-  },
-  "devDependencies": {
-    "electron": "^33.0.0",
-    "esbuild": "^0.24.0",
-    "typescript": "^5.6.0",
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0"
+    "typescript": "^5.6.0"
   },
   "allowScripts": {
     "electron@33.4.11": true,

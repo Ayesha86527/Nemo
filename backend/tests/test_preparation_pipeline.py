@@ -117,3 +117,17 @@ class TestPreparationPipeline:
         result = await pipeline.run("Acme", "Backend Engineer", "JD", "CV")
         assert result.company == "Acme"
         assert result.role == "Backend Engineer"
+
+    async def test_prompts_keep_research_grounded_and_sectioned(self):
+        seen = []
+
+        async def generate(prompt, system=None):
+            seen.append((prompt, system))
+            return LLMResponse(text=MATCH_JSON if len(seen) == 1 else "research brief", provider="stub", model="m")
+
+        await PreparationPipeline(generate).run(
+            "Gallery", "Visitor services coordinator", "Coordinate visitor experience", "Managed front-desk volunteers"
+        )
+        assert "technical recruiter" not in seen[0][1].lower()
+        assert "STRICTLY on evidence" in seen[0][1]
+        assert "COMPANY & ROLE" in seen[1][1] and "GAPS & ANGLES" in seen[1][1]

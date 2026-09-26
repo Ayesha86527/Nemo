@@ -1,11 +1,14 @@
 import sys
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.db.engine import init_db
-from app.routers import health, llm, settings, profile, cv, market, jobs, agent, roadmap, speech
+from app.local_auth import TOKEN_HEADER, is_authorized
+from app.routers import health, llm, settings, profile, cv, market, jobs, agent, roadmap, speech, system
 
 
 @asynccontextmanager
@@ -19,11 +22,21 @@ app = FastAPI(title="Nemo Backend", version="0.2.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost", "http://127.0.0.1", "file://"],
-    allow_credentials=True,
+    # The renderer is a file:// page; origins are pinned rather than wildcarded,
+    # and requests additionally carry the per-launch auth token (local_auth).
+    allow_origins=["http://localhost", "http://127.0.0.1", "file://", "null"],
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*", TOKEN_HEADER],
 )
+
+
+@app.middleware("http")
+async def require_local_token(request: Request, call_next):
+    if request.url.path.startswith("/api/") and not is_authorized(
+        request.headers.get(TOKEN_HEADER, "")
+    ):
+        return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+    return await call_next(request)
 
 app.include_router(health.router)
 app.include_router(llm.router)
@@ -35,6 +48,7 @@ app.include_router(jobs.router)
 app.include_router(agent.router)
 app.include_router(roadmap.router)
 app.include_router(speech.router)
+app.include_router(system.router)
 
 
 def main():

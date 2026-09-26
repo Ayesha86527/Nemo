@@ -1,0 +1,27 @@
+version: "3.8"
+
+# Optional: run the backend standalone in Docker (headless / API-only use).
+# The desktop app does NOT use this — it spawns the backend as a local sidecar.
+#
+# Security: the API is unauthenticated inside the container (no per-launch
+# token), so the port is bound to loopback only. Set NEMO_AUTH_TOKEN to share
+# the port beyond this machine.
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: nemo-backend:latest
+    container_name: nemo-backend
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - nemo_data:/root/.nemo
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+
+volumes:
+  nemo_data:
+    name: nemo_data

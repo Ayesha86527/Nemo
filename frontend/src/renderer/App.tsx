@@ -1,18 +1,19 @@
 import React, { useEffect, useState } from "react";
 import { healthCheck } from "./api/client";
-import AgentPanel from "./components/AgentPanel";
 import BootScreen from "./components/BootScreen";
 import NemoIcon from "./components/NemoIcon";
 import Welcome from "./components/Welcome";
 import Dashboard from "./views/Dashboard";
 import CVStudio from "./views/CVStudio";
 import Market from "./views/Market";
+import NemoView from "./views/Nemo";
 import RoadmapView from "./views/Roadmap";
 import SettingsView from "./views/Settings";
 
-export type View = "dashboard" | "cv" | "market" | "roadmap" | "settings";
+export type View = "nemo" | "dashboard" | "cv" | "market" | "roadmap" | "settings";
 
 const NAV: { id: View; label: string }[] = [
+  { id: "nemo", label: "Nemo" },
   { id: "dashboard", label: "Job Tracker" },
   { id: "cv", label: "CV Studio" },
   { id: "market", label: "Market Intel" },
@@ -21,6 +22,7 @@ const NAV: { id: View; label: string }[] = [
 ];
 
 const VIEW_CONTEXT: Record<View, string> = {
+  nemo: "Nemo chat — the persistent conversation where the agent updates the CV, collects profile details, and drives every workflow.",
   dashboard:
     "Job Tracker — the applications table with statuses, preparation results, and follow-up reminders. Tailoring and cover letters auto-track jobs here.",
   cv: "CV Studio — the uploaded CV file plus structured content (skills, experience, projects, achievements).",
@@ -30,7 +32,7 @@ const VIEW_CONTEXT: Record<View, string> = {
 };
 
 export default function App() {
-  const [view, setView] = useState<View>("dashboard");
+  const [view, setView] = useState<View>("nemo");
   const [backendOk, setBackendOk] = useState(false);
   const [welcomed, setWelcomed] = useState(false);
   const [backendUrl, setBackendUrl] = useState(window.nemoAPI.getBackendUrl());
@@ -88,13 +90,13 @@ export default function App() {
         </div>
       </aside>
       <main className="main">
+        {view === "nemo" && <NemoView context={VIEW_CONTEXT[view]} />}
         {view === "dashboard" && <Dashboard />}
         {view === "cv" && <CVStudio />}
         {view === "market" && <Market onNavigate={setView} />}
         {view === "roadmap" && <RoadmapView />}
         {view === "settings" && <SettingsView />}
       </main>
-      <AgentPanel context={VIEW_CONTEXT[view]} />
     </div>
   );
 }

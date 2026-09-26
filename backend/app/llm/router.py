@@ -14,7 +14,7 @@ from app.db.models import Settings
 from app.llm.errors import LLMError
 from app.llm.providers import CustomProvider, LLMProvider, LLMResponse
 
-__all__ = ["generate", "build_provider", "get_settings", "LLMResponse"]
+__all__ = ["generate", "stream", "build_provider", "get_settings", "LLMResponse"]
 
 
 async def get_settings() -> Settings:
@@ -68,3 +68,16 @@ async def generate(prompt: str, system: str | None = None) -> LLMResponse:
             error=f"Unexpected error: {exc}",
             hint="Check backend logs for details.",
         )
+
+
+async def stream(prompt: str, system: str | None = None):
+    """Stream inference chunks from the configured provider.
+
+    Yields text chunks. Raises LLMError subclasses on failure so the
+    caller can surface a user-facing error event on the SSE stream.
+    """
+    settings = await get_settings()
+    provider = build_provider(settings)
+    async for chunk in provider.stream(prompt, system=system):
+        yield chunk
+

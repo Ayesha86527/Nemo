@@ -11,7 +11,12 @@ engine = create_engine(DATABASE_URL, echo=False, connect_args={"check_same_threa
 
 
 def init_db() -> None:
-    """Create tables, then upgrade pre-existing databases in place."""
+    """Create tables, upgrade pre-existing databases in place, then enforce the
+    one-time clean-slate policy for data-version changes."""
     SQLModel.metadata.create_all(engine)
     ensure_schema(DATABASE_URL)
     migrate_legacy_providers(DATABASE_URL)
+    # Imported late to avoid a circular import (reset -> db.engine).
+    from app.reset import reset_if_version_changed
+
+    reset_if_version_changed()

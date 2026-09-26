@@ -6,9 +6,15 @@ import { contextBridge, ipcRenderer } from "electron";
 const urlParams = new URLSearchParams(window.location.search);
 let backendPort = urlParams.get("port") || "";
 let backendError = "";
+let authToken = urlParams.get("token") || "";
 
-ipcRenderer.on("nemo:backend-port", (_event, port: number) => {
+ipcRenderer.on("nemo:auth-token", (_event, token: string) => {
+  authToken = token;
+});
+
+ipcRenderer.on("nemo:backend-port", (_event, port: number | string) => {
   backendPort = String(port);
+  backendError = "";
 });
 
 ipcRenderer.on("nemo:backend-error", (_event, message: string) => {
@@ -18,4 +24,6 @@ ipcRenderer.on("nemo:backend-error", (_event, message: string) => {
 contextBridge.exposeInMainWorld("nemoAPI", {
   getBackendUrl: () => (backendPort ? `http://127.0.0.1:${backendPort}` : ""),
   getBackendError: () => backendError,
+  // Per-launch shared secret the renderer must send on every /api request.
+  getAuthToken: () => authToken,
 });
